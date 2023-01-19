@@ -37,7 +37,7 @@ const handleArticles = async (currentEmail, article) => {
         avatar
     }
     delete article.dataValues.user
-    article.dataValues.aurhor = author
+    article.dataValues.author = author
     //喜欢文章
     const favoritCount = await article.countUsers()
     if (favoritCount === 0) {
@@ -46,27 +46,27 @@ const handleArticles = async (currentEmail, article) => {
         return article.dataValues
     }
     //未登入游客
-    if(currentEmail){
+    if (currentEmail) {
         article.dataValues.isFavorite = false
         article.dataValues.favoritCounter = favoritCount
         return article.dataValues
     }
-        
-        //当前登入用户是否已经喜欢
-        //获取喜欢文章的人数
-        //获取喜欢文章人的emails
-        //当前登入用户是否在喜欢文章人中
-    
-        const allFavoriteUsers = await article.getUsers()
-        let allFavoriteUsersEmails = []
-        allFavoriteUsers.forEach(user => {
-            allFavoriteUsersEmails.push(user.email)
-        })
-        let isFavorite = allFavoriteUsersEmails.includes(currentEmail)
-        article.dataValues.isFavorite = isFavorite
-        article.dataValues.favoritCounter = favoritCount
-        return article.dataValues
-    
+
+    //当前登入用户是否已经喜欢
+    //获取喜欢文章的人数
+    //获取喜欢文章人的emails
+    //当前登入用户是否在喜欢文章人中
+
+    const allFavoriteUsers = await article.getUsers()
+    let allFavoriteUsersEmails = []
+    allFavoriteUsers.forEach(user => {
+        allFavoriteUsersEmails.push(user.email)
+    })
+    let isFavorite = allFavoriteUsersEmails.includes(currentEmail)
+    article.dataValues.isFavorite = isFavorite
+    article.dataValues.favoritCounter = favoritCount
+    return article.dataValues
+
 }
 
 //创建文章
@@ -192,7 +192,7 @@ module.exports.getFollowArticle = async (req, res, next) => {
         //每一个作者的每一个文章处理：标签和作者信息
         let articles = []
         for (let t of rows) {
-            let handleArticle = await handleArticles(fansEmail,t)
+            let handleArticle = await handleArticles(fansEmail, t)
             articles.push(handleArticle)
         }
         //响应信息
@@ -211,11 +211,11 @@ module.exports.getFollowArticle = async (req, res, next) => {
 //通过 标签~作者 获取文章    //限制 偏移量
 module.exports.getArticles = async (req, res, next) => {
     try {
-        const email =req.user?req.user.email:null
+        const email = req.user ? req.user.email : null
         //获取条件查询参数 ：query > tag atuhor limit offset
         const { tag, author, limit = 10, offset = 0 } = req.query
         //获取文章数组:
-        let result 
+        let result
         if (tag && !author) { //有标签没作者 +分页数据
             result = await Article.findAndCountAll({
                 distinct: true,
@@ -273,13 +273,13 @@ module.exports.getArticles = async (req, res, next) => {
                 offset: parseInt(offset)
             })
         }
-        const {count,rows}=result
+        const { count, rows } = result
 
         //文章数据处理
         //      遍历文章并处理作者于标签信息
         let articles = []
         for (const t of rows) {
-            let handleArticle=await handleArticles(email,t)
+            let handleArticle = await handleArticles(email, t)
             articles.push(handleArticle)
         }
         //响应数据
@@ -287,7 +287,7 @@ module.exports.getArticles = async (req, res, next) => {
             .json({
                 status: 1,
                 message: '条件查询文章成功',
-                data: {articles,articlesCount:count}
+                data: { articles, articlesCount: count }
             })
     } catch (error) {
         next(error)
