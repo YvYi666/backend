@@ -7,7 +7,7 @@ const { getSlug } = require("../utils/slug")
 const { validateCreateArticle } = require("../utils/validate/article.calidate")
 
 //优化返回标签抽离
-function Articlehandle(article, author) {
+function handleArticle(article, author) {
     const newTags = []
     for (const t of article.dataValues.tags) {
         newTags.push(t.name)
@@ -21,25 +21,52 @@ function Articlehandle(article, author) {
     return article.dataValues
 }
 //优化返回标签抽离(多个)
-function Articleshandle(article) {
+const handleArticles = async (currentEmail, article) => {
     //处理标签
     const newTags = []
     for (const t of article.dataValues.tags) {
         newTags.push(t.name)
     }
     article.dataValues.tags = newTags
-    //清理作者信息
-    let {username,email,bio,avatar}=article.dataValues.user
-    let author ={
+    //处理作者信息
+    let { username, email, bio, avatar } = article.dataValues.user
+    let author = {
         username,
         email,
         bio,
         avatar
     }
     delete article.dataValues.user
-    article.dataValues.aurhor =author
-
-    return article.dataValues
+    article.dataValues.aurhor = author
+    //喜欢文章
+    const favoritCount = await article.countUsers()
+    if (favoritCount === 0) {
+        article.dataValues.isFavorite = false
+        article.dataValues.favoritCounter = 0
+        return article.dataValues
+    }
+    //未登入游客
+    if(currentEmail){
+        article.dataValues.isFavorite = false
+        article.dataValues.favoritCounter = favoritCount
+        return article.dataValues
+    }
+        
+        //当前登入用户是否已经喜欢
+        //获取喜欢文章的人数
+        //获取喜欢文章人的emails
+        //当前登入用户是否在喜欢文章人中
+    
+        const allFavoriteUsers = await article.getUsers()
+        let allFavoriteUsersEmails = []
+        allFavoriteUsers.forEach(user => {
+            allFavoriteUsersEmails.push(user.email)
+        })
+        let isFavorite = allFavoriteUsersEmails.includes(currentEmail)
+        article.dataValues.isFavorite = isFavorite
+        article.dataValues.favoritCounter = favoritCount
+        return article.dataValues
+    
 }
 
 //创建文章
@@ -94,7 +121,7 @@ module.exports.createArticle = async (req, res, next) => {
         article = await Article.findByPk(slug, { include: Tag })
         //  2)标签返回优化
         //      作者信息优化
-        article = Articlehandle(article, author)
+        article = handleArticle(article, author)
         //      文章数据优化返回
         res.status(201)
             .json({
@@ -118,7 +145,7 @@ module.exports.getArticle = async (req, res, next) => {
         // console.log(article.__proto__)//getUser
         const author = await article.getUser()
         // 返回数据处理：标签和作者信息
-        article = Articlehandle(article, author)
+        article = handleArticle(article, author)
         // 响应数据
         res.status(200)
             .json({
@@ -135,43 +162,45 @@ module.exports.getArticle = async (req, res, next) => {
 module.exports.getFollowArticle = async (req, res, next) => {
     try {
         //获取登入：用户email
-        const fansEmail =req.user.email      
+        const fansEmail = req.user.email
         //通过用户去找到关注作者的email:follows 关联表
-        const query =`SELECT userEmail FROM follows WHERE followerEmail="${fansEmail}"`
-        const followAuthors =await sequelize.query(query)
+        const query = `SELECT userEmail FROM follows WHERE followerEmail="${fansEmail}"`
+        const followAuthors = await sequelize.query(query)
         //      1)如果没有关注的作者就没有关注文章 =>[]
-        if(followAuthors[0].length==0){
+        if (followAuthors[0].length == 0) {
             return res.status(200).json({
-                status:1,
-                message:"还没有关注的博主哦！",
-                data:[]
+                status: 1,
+                message: "还没有关注的博主哦！",
+                data: []
             })
         }
         //      2)有获取作者Email：[author1,autor2]
-        let followAuthorEmails=[]
-        for(const o of followAuthors[0]){
+        let followAuthorEmails = []
+        for (const o of followAuthors[0]) {
             followAuthorEmails.push(o.userEmail)
         }
         //获取作者文章
         //      1）遍历获取作者[author1,autr2]
         //      2）获取作者所有文章（注意标签信息和作者信息）
-        let articleAll = await Article.findAll({
-            where:{
-                userEmail:followAuthorEmails //查询了一个数组
+        let { count, rows } = await Article.findAndCountAll({
+            distinct: true,//去重count和rows可能不一样去重后一致
+            where: {
+                userEmail: followAuthorEmails //查询了一个数组
             },
-            include:[Tag,User]
+            include: [Tag, User]
         })
         //每一个作者的每一个文章处理：标签和作者信息
-        let articles =[]
-        for(let article of articleAll){
-            articles.push(Articleshandle(article))
+        let articles = []
+        for (let t of rows) {
+            let handleArticle = await handleArticles(fansEmail,t)
+            articles.push(handleArticle)
         }
         //响应信息
         res.status(200)
             .json({
                 status: 1,
                 message: '作者文章查询成功',
-                data:articles
+                data: { articles, articlesCount: count }
             })
     } catch (error) {
         next(error)
@@ -182,76 +211,83 @@ module.exports.getFollowArticle = async (req, res, next) => {
 //通过 标签~作者 获取文章    //限制 偏移量
 module.exports.getArticles = async (req, res, next) => {
     try {
+        const email =req.user?req.user.email:null
         //获取条件查询参数 ：query > tag atuhor limit offset
-        const {tag,author,limit=10,offset=0} =req.query
+        const { tag, author, limit = 10, offset = 0 } = req.query
         //获取文章数组:
-        let articleAll = []
-        if(tag&&!author){ //有标签没作者 +分页数据
-            articleAll =await Article.findAll({
-                include:[{
-                    model:Tag,
-                    attributes:['name'],
-                    where:{name:tag}
-                },{
-                    model:User,
-                    attributes:['email','username','bio','avatar']
+        let result 
+        if (tag && !author) { //有标签没作者 +分页数据
+            result = await Article.findAndCountAll({
+                distinct: true,
+                include: [{
+                    model: Tag,
+                    attributes: ['name'],
+                    where: { name: tag }
+                }, {
+                    model: User,
+                    attributes: ['email', 'username', 'bio', 'avatar']
                 }],
-                limit:parseInt(limit),
-                offset:parseInt(offset)
+                limit: parseInt(limit),
+                offset: parseInt(offset)
             })
-        }else if(!tag&&author){//没标签有作者 +分页数据
-            articleAll =await Article.findAll({
-                include:[{
-                    model:Tag,
-                    attributes:['name'],
-                },{
-                    model:User,
-                    attributes:['email','username','bio','avatar'],
-                    where:{username:author}
+        } else if (!tag && author) {//有作者没标签 +分页数据
+            result = await Article.findAndCountAll({
+                distinct: true,
+                include: [{
+                    model: Tag,
+                    attributes: ['name'],
+                }, {
+                    model: User,
+                    attributes: ['email', 'username', 'bio', 'avatar'],
+                    where: { username: author }
                 }],
-                limit:parseInt(limit),
-                offset:parseInt(offset)
+                limit: parseInt(limit),
+                offset: parseInt(offset)
             })
-        }else if(tag&&author){//有标签和作者 +分页数据
-            articleAll =await Article.findAll({
-                include:[{
-                    model:Tag,
-                    attributes:['name'],
-                    where:{name:tag}
-                },{
-                    model:User,
-                    attributes:['email','username','bio','avatar'],
-                    where:{username:author}
+        } else if (tag && author) {//有标签和作者 +分页数据
+            result = await Article.findAndCountAll({
+                distinct: true,
+                include: [{
+                    model: Tag,
+                    attributes: ['name'],
+                    where: { name: tag }
+                }, {
+                    model: User,
+                    attributes: ['email', 'username', 'bio', 'avatar'],
+                    where: { username: author }
                 }],
-                limit:parseInt(limit),
-                offset:parseInt(offset)
+                limit: parseInt(limit),
+                offset: parseInt(offset)
             })
-        }else{//没作者没标签
-            articleAll =await Article.findAll({
-                include:[{
-                    model:Tag,
-                    attributes:['name'],
-                },{
-                    model:User,
-                    attributes:['email','username','bio','avatar'],
+        } else {//没作者没标签
+            result = await Article.findAndCountAll({
+                distinct: true,
+                include: [{
+                    model: Tag,
+                    attributes: ['name'],
+                }, {
+                    model: User,
+                    attributes: ['email', 'username', 'bio', 'avatar'],
                 }],
-                limit:parseInt(limit),
-                offset:parseInt(offset)
+                limit: parseInt(limit),
+                offset: parseInt(offset)
             })
         }
-        
+        const {count,rows}=result
+
         //文章数据处理
         //      遍历文章并处理作者于标签信息
         let articles = []
-        for(const article of articleAll){
-            articles.push(Articleshandle(article))
+        for (const t of rows) {
+            let handleArticle=await handleArticles(email,t)
+            articles.push(handleArticle)
         }
         //响应数据
         res.status(200)
             .json({
                 status: 1,
                 message: '条件查询文章成功',
-                data:articles
+                data: {articles,articlesCount:count}
             })
     } catch (error) {
         next(error)
@@ -284,7 +320,7 @@ module.exports.updateArticle = async (req, res, next) => {
         //更新数据操作
         const updateArticle = await article.update({ title, description, body })
         //返回数据处理：标签和作者信息
-        article = Articlehandle(updateArticle, loginUser)
+        article = handleArticle(updateArticle, loginUser)
         //响应数据
         res.status(201)
             .json({
@@ -310,18 +346,18 @@ module.exports.deleteArticle = async (req, res, next) => {
         // 获取当前登入用户：是否为作者
         //     1）是可以删除
         //     2）否抛出异常
-        const {email}=req.user
+        const { email } = req.user
         const loginUser = await User.findByPk(email)
-        if(!loginUser){
-            throw new HttpException(401,'当前登入用户不存在','user not found')
+        if (!loginUser) {
+            throw new HttpException(401, '当前登入用户不存在', 'user not found')
         }
-        const authorEmail =article.userEmail
-        if(email!==authorEmail){
-            throw new HttpException(403,'作者才能编辑','only author have permission to update current article')
+        const authorEmail = article.userEmail
+        if (email !== authorEmail) {
+            throw new HttpException(403, '作者才能编辑', 'only author have permission to update current article')
 
         }
         //删除文章：依据slug删除数据库中的文章
-        await Article.destroy({where:{slug}})
+        await Article.destroy({ where: { slug } })
         // 响应数据
         res.status(200)
             .json({
