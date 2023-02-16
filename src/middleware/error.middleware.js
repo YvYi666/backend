@@ -6,7 +6,7 @@ const errorMiddleware = (error,req,res,nest)=>{
 
     res.status(status)
         .json({
-            code:0,
+            status:0,
             massage:message,
             errors:errors,
         })

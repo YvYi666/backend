@@ -8,7 +8,8 @@ const  sign = async (username,email)=>{
         jwt.sign({
             username,
             email,
-        },process.env.JWT_SECRET,(err,token)=>{
+        },process.env.JWT_SECRET,
+        (err,token)=>{
             if(err){
                 return reject(err)
             }

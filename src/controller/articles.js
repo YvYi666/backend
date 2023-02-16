@@ -39,16 +39,16 @@ const handleArticles = async (currentEmail, article) => {
     delete article.dataValues.user
     article.dataValues.author = author
     //喜欢文章
-    const favoritCount = await article.countUsers()
-    if (favoritCount === 0) {
+    const favoriteCount = await article.countUsers()
+    if (favoriteCount === 0) {
         article.dataValues.isFavorite = false
-        article.dataValues.favoritCounter = 0
+        article.dataValues.favoriteCounter = 0
         return article.dataValues
     }
     //未登入游客
     if (currentEmail) {
         article.dataValues.isFavorite = false
-        article.dataValues.favoritCounter = favoritCount
+        article.dataValues.favoriteCounter = favoriteCount
         return article.dataValues
     }
 
@@ -64,7 +64,7 @@ const handleArticles = async (currentEmail, article) => {
     })
     let isFavorite = allFavoriteUsersEmails.includes(currentEmail)
     article.dataValues.isFavorite = isFavorite
-    article.dataValues.favoritCounter = favoritCount
+    article.dataValues.favoriteCounter = favoriteCount
     return article.dataValues
 
 }
